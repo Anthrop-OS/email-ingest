@@ -28,3 +28,9 @@ data/
 
 # Logs
 *.log
+
+# Coverage & test artifacts
+coverage.json
+test-results.xml
+htmlcov/
+.coverage
