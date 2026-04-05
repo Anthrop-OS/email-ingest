@@ -2,6 +2,7 @@ import os
 import yaml
 from pydantic import BaseModel, Field
 from typing import List, Optional
+from typing_extensions import Literal
 from dotenv import load_dotenv
 
 class SettingsConfig(BaseModel):
@@ -24,10 +25,11 @@ class EmailAccountConfig(BaseModel):
         return password
 
 class LLMProviderConfig(BaseModel):
-    provider_type: str
+    provider_type: Literal["openai"] = Field(description="Must be exactly 'openai' supported right now")
     model: str
     base_url_env_var: Optional[str] = None
     api_key_env_var: str
+    max_content_length: int = 8000
     
     def get_api_key(self) -> str:
         api_key = os.environ.get(self.api_key_env_var)

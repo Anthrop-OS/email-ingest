@@ -1,7 +1,7 @@
 import imaplib
 import email
 from email.message import Message
-from typing import List, Dict, Any, Callable
+from typing import List, Dict, Any, Callable, Tuple, Optional
 from core.config_loader import EmailAccountConfig
 from core.persistence import PersistenceManager
 import logging
@@ -14,8 +14,10 @@ class EmailFetcher:
         self.persistence = persistence
         self.dry_run = is_dry_run
 
-    def fetch_new_emails(self, password_resolver: Callable[[], str]) -> List[Dict[str, Any]]:
-        password = password_resolver()
+    def fetch_new_emails(self, start_uid: int, since_date: Optional[str] = None) -> Tuple[List[Dict[str, Any]], int]:
+        from typing import Tuple
+        from datetime import datetime
+        password = self.account.get_password()
         
         if self.account.use_ssl:
             mail = imaplib.IMAP4_SSL(self.account.imap_server, self.account.imap_port)
@@ -26,31 +28,41 @@ class EmailFetcher:
             mail.login(self.account.username, password)
             mail.select(self.account.fetch_folder)
             
-            last_uid = self.persistence.get_cursor(self.account.account_id)
-            logger.info(f"Fetching for {self.account.account_id} since UID: {last_uid}")
+            logger.info(f"Fetching for {self.account.account_id} since UID: {start_uid - 1}")
             
-            status, response = mail.uid('SEARCH', None, f'UID {last_uid + 1}:*')
+            search_query = f'UID {start_uid}:*'
+            if since_date:
+                try:
+                    dt = datetime.strptime(since_date, "%Y-%m-%d")
+                    imap_date = dt.strftime("%d-%b-%Y") # 01-Jan-2024
+                    search_query += f' SINCE {imap_date}'
+                except ValueError:
+                    logger.error(f"Invalid date format: {since_date}. Expected YYYY-MM-DD.")
+                    return [], start_uid - 1
+            
+            status, response = mail.uid('SEARCH', None, search_query)
             
             if status != 'OK':
                 logger.error(f"Failed to search for new emails: {status}")
-                return []
+                return [], start_uid - 1
                 
             uids_str = response[0].decode('utf-8').strip()
             if not uids_str:
-                return []
+                return [], start_uid - 1
                 
             uids = [int(u) for u in uids_str.split()]
-            uids = [u for u in uids if u > last_uid]
+            uids = [u for u in uids if u >= start_uid]
             
             if not uids:
-                return []
+                return [], start_uid - 1
 
             if self.dry_run:
                 logger.warning(f"[DRY-RUN] Will not fetch {len(uids)} emails. Identified UIDs: {uids}")
-                return []
+                max_uid = max(uids) if uids else start_uid - 1
+                return [], max_uid
 
             fetched_emails = []
-            max_uid_seen = last_uid
+            max_uid_seen = start_uid - 1
 
             for uid in uids:
                 status, fetch_data = mail.uid('FETCH', str(uid), '(RFC822)')
@@ -72,11 +84,8 @@ class EmailFetcher:
                             fetched_emails.append(email_data)
                             max_uid_seen = max(max_uid_seen, uid)
 
-            # Directly update persistence for proof of concept logic
-            if max_uid_seen > last_uid:
-                self.persistence.update_cursor(self.account.account_id, max_uid_seen)
-            
-            return fetched_emails
+            # Idempotency is preserved. The caller updates the cursor.
+            return fetched_emails, max_uid_seen
 
         finally:
             try:

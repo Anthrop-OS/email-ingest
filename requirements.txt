@@ -4,3 +4,5 @@ pytest
 pytest-mock
 python-dotenv
 jinja2
+openai>=1.0.0
+filelock

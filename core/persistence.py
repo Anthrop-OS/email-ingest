@@ -2,10 +2,13 @@ import sqlite3
 import uuid
 from datetime import datetime
 from typing import Optional
+from typing_extensions import Literal
+from pathlib import Path
 
 class PersistenceManager:
     def __init__(self, db_path: str):
         self.db_path = db_path
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.db_path)
         self._init_db()
 
@@ -52,7 +55,7 @@ class PersistenceManager:
         ''', (account_id, new_uid, now))
         self.conn.commit()
 
-    def log_audit(self, account_id: str, before_uid: int, after_uid: int, emails_processed: int, status: str, error_msg: Optional[str] = None):
+    def log_audit(self, account_id: str, before_uid: int, after_uid: int, emails_processed: int, status: Literal["SUCCESS", "FAIL"], error_msg: Optional[str] = None):
         cursor = self.conn.cursor()
         run_id = str(uuid.uuid4())
         now = datetime.utcnow().isoformat()
