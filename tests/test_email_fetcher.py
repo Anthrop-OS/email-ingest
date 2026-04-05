@@ -1,3 +1,4 @@
+import os
 import pytest
 from unittest.mock import MagicMock, patch
 from modules.email_fetcher import EmailFetcher
@@ -22,6 +23,7 @@ def persistence():
     yield pm
     pm.close()
 
+@patch.dict(os.environ, {"TEST_PWD": "dummy_password"})
 def test_fetch_emails_dry_run(mock_account, persistence):
     fetcher = EmailFetcher(mock_account, persistence, is_dry_run=True)
     
@@ -34,13 +36,13 @@ def test_fetch_emails_dry_run(mock_account, persistence):
             ('OK', [b'101 102']), # SEARCH response
         ]
         
-        emails = fetcher.fetch_new_emails(lambda: "password")
+        emails, max_uid = fetcher.fetch_new_emails(start_uid=1)
         
         assert len(emails) == 0, "Dry run should not fetch full emails"
         mock_instance.select.assert_called_with('INBOX')
-        
-        assert persistence.get_cursor("test_account") == 0
+        assert max_uid == 102
 
+@patch.dict(os.environ, {"TEST_PWD": "dummy_password"})
 def test_fetch_emails_normal_run(mock_account, persistence):
     fetcher = EmailFetcher(mock_account, persistence, is_dry_run=False)
     
@@ -55,11 +57,11 @@ def test_fetch_emails_normal_run(mock_account, persistence):
             ('OK', [(b'102 (RFC822 {10}', b'Subject: B\r\n\r\nBody B')]), # FETCH 102
         ]
         
-        emails = fetcher.fetch_new_emails(lambda: "password")
+        emails, max_uid = fetcher.fetch_new_emails(start_uid=1)
         
         assert len(emails) == 2
         assert emails[0]['uid'] == 101
         assert emails[0]['subject'] == 'A'
         assert emails[1]['uid'] == 102
         
-        assert persistence.get_cursor("test_account") == 102
+        assert max_uid == 102
