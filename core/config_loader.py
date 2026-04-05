@@ -25,7 +25,7 @@ class EmailAccountConfig(BaseModel):
         return password
 
 class LLMProviderConfig(BaseModel):
-    provider_type: Literal["openai"] = Field(description="Must be exactly 'openai' supported right now")
+    provider_type: Literal["openai", "ollama", "vllm", "local"] = Field(description="Must be exactly 'openai' supported right now, but others act as aliases for the same underlying OpenAI SDK via base_url")
     model: str
     base_url_env_var: Optional[str] = None
     api_key_env_var: str
