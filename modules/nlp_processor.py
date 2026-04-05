@@ -39,7 +39,12 @@ class NLPProcessor:
             from openai import OpenAI
             api_key = self.config.get_api_key()
             base_url = self.config.get_base_url()
-            self.client = OpenAI(api_key=api_key, base_url=base_url)
+            extra_headers = self.config.get_extra_headers()
+            self.client = OpenAI(
+                api_key=api_key,
+                base_url=base_url,
+                default_headers=extra_headers or None
+            )
 
     def _throttle(self):
         """Fixed-interval throttle based on rate_limit_rpm. Concurrency=1 (serial)."""

@@ -12,9 +12,19 @@ email_accounts:
     fetch_folder: "INBOX"
 
 llm_provider:
-  provider_type: "openai" # Options: openai, ollama, vllm, local
+  provider_type: "openai" # Options: openai, openrouter, ollama, vllm, local
   model: "gpt-4-turbo"
-  base_url_env_var: "LLM_BASE_URL" # Useful for vLLM/Ollama
+  base_url_env_var: "LLM_BASE_URL" # Useful for vLLM/Ollama (ignored by openrouter)
   api_key_env_var: "LLM_API_KEY"
   max_content_length: 8000 # Prevents blowing out the context window
   rate_limit_rpm: 30       # Max LLM requests/min. 0 = unlimited. Protects against API cost spikes.
+
+# ── Alternative: OpenRouter (access 200+ models via one API key) ──
+# llm_provider:
+#   provider_type: "openrouter"
+#   model: "anthropic/claude-sonnet-4"   # Any model from https://openrouter.ai/models
+#   api_key_env_var: "OPENROUTER_API_KEY"
+#   max_content_length: 8000
+#   rate_limit_rpm: 30
+#   http_referer: "https://your-app.example.com"  # Optional: for OpenRouter rankings
+#   app_title: "Email Ingest"                     # Optional: for OpenRouter analytics

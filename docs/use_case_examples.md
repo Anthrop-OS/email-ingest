@@ -134,3 +134,42 @@ python main.py --force-from-uid 1 --force-reprocess
 * `--force-from-uid 1` 配合使用，可以从头开始重新处理所有邮件。
 * 新的 LLM 结果会覆盖旧缓存（INSERT OR REPLACE），后续运行将使用新结果。
 
+---
+
+## 🌐 场景十一：通过 OpenRouter 自由切换 200+ 大模型 (OpenRouter Integration)
+**用例：** 您不想被锁定在单一的 LLM 供应商上。也许今天 Claude Sonnet 的性价比最高，明天 Gemini 2.5 Pro 可能更适合邮件分拣任务。借助 [OpenRouter](https://openrouter.ai)，您只需一个 API Key 就能接入 OpenAI、Anthropic、Google、Meta 等所有主流大模型。
+**操作步骤：**
+
+**1. 获取 OpenRouter API Key：**
+前往 https://openrouter.ai/keys 创建一个 API Key（格式为 `sk-or-...`）。
+
+**2. 修改 `.env` 文件：**
+```bash
+OPENROUTER_API_KEY="sk-or-your-actual-key-here"
+```
+
+**3. 修改 `config.yaml`：**
+```yaml
+llm_provider:
+  provider_type: "openrouter"
+  model: "anthropic/claude-sonnet-4"   # 在 https://openrouter.ai/models 找到所有可用模型
+  api_key_env_var: "OPENROUTER_API_KEY"
+  max_content_length: 8000
+  rate_limit_rpm: 30
+  http_referer: "https://your-app.example.com"  # 可选：用于 OpenRouter 的应用排名
+  app_title: "Email Ingest"                     # 可选：用于 OpenRouter 的分析面板
+```
+
+**4. 正常执行：**
+```bash
+python main.py --init-start-date 2024-01-01
+```
+
+**原理解释：**
+* OpenRouter 完全兼容 OpenAI SDK 协议。系统会 **自动将 base_url 设置为 `https://openrouter.ai/api/v1`**，无需手动配置 `LLM_BASE_URL`。
+* `model` 字段使用 OpenRouter 的模型命名格式（`供应商/模型名`），例如 `google/gemini-2.5-pro`、`meta-llama/llama-4-maverick` 等。
+* `http_referer` 和 `app_title` 是 OpenRouter 推荐的可选参数，用于在 OpenRouter 排行榜和开发者分析面板中标识您的应用。
+* 如果需要通过自建代理访问 OpenRouter，可以在 `.env` 中设置 `LLM_BASE_URL` 环境变量覆盖默认地址。
+* 所有现有功能（缓存、限速、Poison Quarantine 等）**完全兼容**，无需任何额外适配。
+
+
