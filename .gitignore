@@ -22,3 +22,7 @@ data/
 .vscode/
 .idea/
 *.swp
+
+# Local Keys
+cyber_ayi_private_key.txt
+cyber_ayi_gpg_key.txt
