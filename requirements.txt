@@ -1,0 +1,6 @@
+pyyaml
+pydantic
+pytest
+pytest-mock
+python-dotenv
+jinja2

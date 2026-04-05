@@ -1,0 +1,24 @@
+# Secrets and environment overrides
+.env
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Databases
+*.sqlite
+*.db
+data/
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp

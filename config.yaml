@@ -1,0 +1,18 @@
+settings:
+  db_path: "data/email_ingest.sqlite"
+  default_dry_run: false
+
+email_accounts:
+  - account_id: "example_work_email"
+    imap_server: "imap.example.com"
+    imap_port: 993
+    use_ssl: true
+    username: "user@example.com"
+    password_env_var: "WORK_EMAIL_PASSWORD"  # References the key in .env
+    fetch_folder: "INBOX"
+
+llm_provider:
+  provider_type: "openai" # Options: openai, gemini, claude, local
+  model: "gpt-4-turbo"
+  base_url_env_var: "LLM_BASE_URL" # Useful for vLLM/Ollama
+  api_key_env_var: "LLM_API_KEY"
