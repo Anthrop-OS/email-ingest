@@ -1,6 +1,7 @@
 import json
 import logging
-from typing import Dict, Any, Tuple, Literal, List
+from typing import Dict, Any, Tuple, List
+from typing_extensions import Literal
 from pydantic import BaseModel, Field
 from core.config_loader import LLMProviderConfig
 

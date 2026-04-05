@@ -1,7 +1,8 @@
 import os
 import yaml
 from pydantic import BaseModel, Field
-from typing import List, Optional, Literal
+from typing import List, Optional
+from typing_extensions import Literal
 from dotenv import load_dotenv
 
 class SettingsConfig(BaseModel):

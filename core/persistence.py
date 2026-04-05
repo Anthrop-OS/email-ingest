@@ -1,7 +1,8 @@
 import sqlite3
 import uuid
 from datetime import datetime
-from typing import Optional, Literal
+from typing import Optional
+from typing_extensions import Literal
 from pathlib import Path
 
 class PersistenceManager:
