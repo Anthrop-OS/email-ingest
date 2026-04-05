@@ -12,7 +12,7 @@ email_accounts:
     fetch_folder: "INBOX"
 
 llm_provider:
-  provider_type: "openai" # Options: openai, gemini, claude, local
+  provider_type: "openai" # Options: openai, ollama, vllm, local
   model: "gpt-4-turbo"
   base_url_env_var: "LLM_BASE_URL" # Useful for vLLM/Ollama
   api_key_env_var: "LLM_API_KEY"

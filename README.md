@@ -1,7 +1,7 @@
 # 📧 Email Ingest - AI-Powered Email Triage System
 
 **Email Ingest** 是一个工业级、无状态（Stateless）且以被动调用为核心架构的智能化邮件抓取和分拣流水线。
-该系统可以并发拉取多个 IMAP 邮箱服务器中的增量邮件，接入主流的大语言模型 (如 OpenAI, Gemini, OLLAMA, vLLM) 将凌乱且冗长的邮件文本进行 AI 分拣，随后输出为可被下游基础设施轻松消费的高质量结构化数据。
+该系统可以并发拉取多个 IMAP 邮箱服务器中的增量邮件，接入主流的大语言模型 (如 OpenAI，或通过兼容接口接入 OLLAMA, vLLM 等本地/专属服务) 将凌乱且冗长的邮件文本进行 AI 分拣，随后输出为可被下游基础设施轻松消费的高质量结构化数据。
 
 ---
 
@@ -51,6 +51,12 @@ cp config.yaml.example config.yaml
 # 最常用的默认启动命令。将依据 config.yaml 全部顺序执行并打印到控制台
 python main.py 
 ```
+
+### = 核心配置 =
+* **`--config <file>`**
+  指定配置文件的路径（默认：`config.yaml`）。
+* **`--log-level <levels>`**
+  覆盖系统的日志输出等级，可选 `DEBUG, INFO, WARNING, ERROR`。
 
 ### = 冷初始化 (Cold Start) =
 * **`--init-start-date <YYYY-MM-DD>`**
