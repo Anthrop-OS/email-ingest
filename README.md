@@ -9,6 +9,7 @@
 
 - **🔒 原子级游标安全 (Idempotent Cursors)：** 底层基于 SQLite 构建。邮件拉取游标（Cursor）的推进具有事务性保护，仅在邮件获取、AI 处理及最终交付全链路成功后才会更新。
 - **🧠 精准 AI 分拣 (AI Triage)：** 内置文本截断（Hard Limit）机制与优化的 Prompt 模板，有效过滤历史上下文，精准提取关键实体（Entities）、紧急程度（Priority）及行动建议（Actionable Insights）。
+- **💾 NLP 结果缓存 (Content-Hash Dedup)：** 基于邮件内容指纹(SHA-256)的 LLM 结果持久化缓存。崩溃恢复或重跑时，已处理的邮件直接命中缓存，避免重复消耗昂贵的 LLM API 调用。切换模型时缓存自动失效并重新处理。
 - **💼 无状态按需执行 (Run-Once & Stateless)：** 摒弃不稳定的常驻守护进程模式。系统被设计为单次执行，完美契合操作系统级任务编排工具（如 K8s CronJob, Linux Crontab, Node Orchestrator）的按需调度。
 - **⏱️ 并发防冲突保护 (FileLock Gating)：** 具备账户级别的进程互斥锁。即使调度器触发重叠的并发任务，也能自动加锁拦截，有效阻断“脏写”与重复处理。
 - **🛡️ 异常隔离与自愈 (Poison Pill Quarantine)：** 遇到导致大模型解析失败或报错的“异常邮件”时，系统不会被阻塞中断。它会自动生成包含 `[NLP FAULT]` 标记的兜底报告交由人工复核，并安全跳过该邮件继续处理后续队列。
@@ -72,8 +73,11 @@ python main.py
   **（演习模式）**
   全程不调用实际的 LLM API（模拟返回结果），**且禁止任何 SQLite 游标的新建、更新与写入操作**。非常适合在首次部署或修改配置时验证系统连通性，零副作用。
 * **`--skip-nlp`**
-  **（跳过 AI 分析）**
+  **(跳过 AI 分析)**
   仅执行 IMAP 拉取逻辑并向下投递纯文本。适用于排查邮件抓取异常，或在调试时快速验证基础流程，跳过大模型生成的耗时。
+* **`--force-reprocess`**
+  **(强制重新处理)**
+  忽略 NLP 结果缓存，强制对本次运行中的所有邮件重新调用 LLM。适用于模型 Prompt 调整后想要刷新历史结果的场景。注：正常切换模型时缓存会自动按 model_version 失效，无需手动指定此参数。
 
 ### = 并发与调度 =
 * **`--target-account <account_id>`**
@@ -103,3 +107,15 @@ python main.py
 我们强烈建议您采用 **JSON 输出拦截模式 (JSON Forwarding / Caller Interception)** 将数据对接给外部系统！
 
 如果您确有业务需求，必须在本项目源码内嵌入 API 请求代码，请参阅 `docs/openclaw_interface_usage.md`，了解如何通过安全继承 `IOutputChannel` 接口来实现功能扩展，这是防范游标状态漂移的最佳实践。
+
+---
+
+## 📚 开发文档 (Developer Documentation)
+
+| 文档 | 简介 |
+|---|---|
+| [`docs/persistence/persistence_analysis.md`](docs/persistence/persistence_analysis.md) | 持久化层与幂等性的完整技术分析，包含故障场景矩阵和方案对比 |
+| [`docs/persistence/nlp_cache_implementation.md`](docs/persistence/nlp_cache_implementation.md) | NLP 结果缓存的详细设计方案，包含 Schema、Content Hash 算法、Race Condition 分析 |
+| [`docs/persistence/nlp_cache_walkthrough.md`](docs/persistence/nlp_cache_walkthrough.md) | NLP 缓存功能的变更记录与验证结果 |
+| [`docs/use_case_examples.md`](docs/use_case_examples.md) | 完整使用场景与实战教程 |
+| [`docs/openclaw_interface_usage.md`](docs/openclaw_interface_usage.md) | OpenClaw Webhook 集成指南 |

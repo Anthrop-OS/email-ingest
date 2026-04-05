@@ -8,6 +8,7 @@ from filelock import FileLock, Timeout
 
 from core.config_loader import ConfigLoader
 from core.persistence import PersistenceManager
+from core.content_hasher import compute_email_fingerprint
 from modules.email_fetcher import EmailFetcher
 from modules.nlp_processor import NLPProcessor, LLMResponse
 from modules.output_channel import ConsoleOutputChannel, FileOutputChannel
@@ -27,6 +28,7 @@ def parse_args():
     parser.add_argument("--force-from-uid", type=int, help="Override SQLite UID cursor and start from this UID")
     parser.add_argument("--init-start-date", help="Format YYYY-MM-DD. Mandatory on first run to prevent avalanche.")
     parser.add_argument("--skip-nlp", action="store_true", help="Bypass LLM")
+    parser.add_argument("--force-reprocess", action="store_true", help="Ignore NLP cache and re-run LLM for all emails in this run")
     parser.add_argument("--output-file", help="JSON file path to safely dump processed results")
     return parser.parse_args()
 
@@ -118,10 +120,16 @@ def main():
                     } for e in emails_data
                 ]
             else:
-                nlp = NLPProcessor(config.llm_provider, is_dry_run=args.dry_run)
+                nlp = NLPProcessor(
+                    config.llm_provider,
+                    persistence,
+                    is_dry_run=args.dry_run,
+                    force_reprocess=args.force_reprocess
+                )
                 for email_data in emails_data:
+                    content_hash = compute_email_fingerprint(email_data)
                     try:
-                        result = nlp.process_email(email_data)
+                        result = nlp.process_email(email_data, content_hash)
                         processed_results.append(result.model_dump())
                     except Exception as e:
                         logger.error(f"NLP skipping email UID {email_data.get('uid')} due to error: {e}")
@@ -179,3 +187,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

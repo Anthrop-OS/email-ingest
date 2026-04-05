@@ -104,3 +104,33 @@ python main.py --init-start-date 2024-03-01
 **原理解释：**
 * 我们利用企业级的 `filelock` 落盘隔离。后来者无法在 `timeout=0` 之内获取抢占进程锁，所以它会在产生一句 `[WARNING] Cron collision ... Skipping` 日志后静默退位！
 * 杜绝两次并行读取造成的乱序和写入脏碰撞。
+
+---
+
+## 💾 场景九：崩溃恢复零浪费 (NLP Cache Dedup)
+**用例：** 系统在处理 30 封邮件的批次时，第 15 封因为 LLM API 超时导致进程崩溃。重启后，您不想让前 14 封已经成功调用过昂贵 LLM API 的邮件再被重复处理一次。
+**操作命令：**
+```bash
+python main.py
+```
+**原理解释：**
+* 每封邮件在调用 LLM 前，系统会先计算其内容指纹（Content Hash = SHA-256 of sender + date + subject + body[:2000]）。
+* LLM 处理成功后，结果会被持久化缓存到 SQLite 的 `nlp_cache` 表中（约 700 bytes/封）。
+* 崩溃恢复后重跑时，前 14 封邮件的 Content Hash 命中缓存 → 直接返回已缓存的结果，**零 LLM API 调用**。
+* 只有第 15 封及之后的邮件才会真正调用 LLM，大幅节省成本和时间。
+* 日志中会清晰标记：`NLP cache HIT for UID xxx (hash=abc123)`。
+
+---
+
+## 🔄 场景十：切换模型后刷新历史结果 (Force Reprocess)
+**用例：** 您将配置中的模型从 `gemma4:e4b` 升级为 `gpt-4o`，希望用新模型重新分析所有邮件以获得更高质量的分拣结果。
+**操作命令：**
+```bash
+python main.py --force-from-uid 1 --force-reprocess
+```
+**原理解释：**
+* **正常情况下，切换模型后缓存会自动失效！** 系统在查找缓存时会校验 `model_version`，旧模型生成的缓存不会被新模型命中。
+* `--force-reprocess` 是更激进的选项：它会彻底跳过所有缓存检查，强制重新调用 LLM。适用于同一模型但修改了 Prompt 模板的场景。
+* `--force-from-uid 1` 配合使用，可以从头开始重新处理所有邮件。
+* 新的 LLM 结果会覆盖旧缓存（INSERT OR REPLACE），后续运行将使用新结果。
+

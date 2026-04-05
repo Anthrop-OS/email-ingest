@@ -26,6 +26,11 @@ class EmailFetcher:
             
         try:
             mail.login(self.account.username, password)
+            # TODO(P1): Check UIDVALIDITY from mail.select() response.
+            # If UIDVALIDITY has changed since our last recorded value, all UIDs
+            # have been reassigned. We must invalidate the cursor to prevent
+            # processing the wrong emails or missing newly assigned UIDs.
+            # Store UIDVALIDITY in account_cursors table and compare on each run.
             mail.select(self.account.fetch_folder)
             
             logger.info(f"Fetching for {self.account.account_id} since UID: {start_uid - 1}")
