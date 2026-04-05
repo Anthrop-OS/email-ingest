@@ -1,7 +1,7 @@
 import imaplib
 import email
 from email.message import Message
-from typing import List, Dict, Any, Callable, Tuple
+from typing import List, Dict, Any, Callable, Tuple, Optional
 from core.config_loader import EmailAccountConfig
 from core.persistence import PersistenceManager
 import logging
@@ -14,8 +14,9 @@ class EmailFetcher:
         self.persistence = persistence
         self.dry_run = is_dry_run
 
-    def fetch_new_emails(self, start_uid: int) -> Tuple[List[Dict[str, Any]], int]:
+    def fetch_new_emails(self, start_uid: int, since_date: Optional[str] = None) -> Tuple[List[Dict[str, Any]], int]:
         from typing import Tuple
+        from datetime import datetime
         password = self.account.get_password()
         
         if self.account.use_ssl:
@@ -29,7 +30,17 @@ class EmailFetcher:
             
             logger.info(f"Fetching for {self.account.account_id} since UID: {start_uid - 1}")
             
-            status, response = mail.uid('SEARCH', None, f'UID {start_uid}:*')
+            search_query = f'UID {start_uid}:*'
+            if since_date:
+                try:
+                    dt = datetime.strptime(since_date, "%Y-%m-%d")
+                    imap_date = dt.strftime("%d-%b-%Y") # 01-Jan-2024
+                    search_query += f' SINCE {imap_date}'
+                except ValueError:
+                    logger.error(f"Invalid date format: {since_date}. Expected YYYY-MM-DD.")
+                    return [], start_uid - 1
+            
+            status, response = mail.uid('SEARCH', None, search_query)
             
             if status != 'OK':
                 logger.error(f"Failed to search for new emails: {status}")

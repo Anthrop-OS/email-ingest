@@ -1,7 +1,7 @@
 import sqlite3
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal
 from pathlib import Path
 
 class PersistenceManager:
@@ -54,7 +54,7 @@ class PersistenceManager:
         ''', (account_id, new_uid, now))
         self.conn.commit()
 
-    def log_audit(self, account_id: str, before_uid: int, after_uid: int, emails_processed: int, status: str, error_msg: Optional[str] = None):
+    def log_audit(self, account_id: str, before_uid: int, after_uid: int, emails_processed: int, status: Literal["SUCCESS", "FAIL"], error_msg: Optional[str] = None):
         cursor = self.conn.cursor()
         run_id = str(uuid.uuid4())
         now = datetime.utcnow().isoformat()

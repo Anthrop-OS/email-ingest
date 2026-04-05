@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Literal, List
 from pydantic import BaseModel, Field
 from core.config_loader import LLMProviderConfig
 
@@ -8,9 +8,9 @@ logger = logging.getLogger(__name__)
 
 class LLMResponse(BaseModel):
     original_uid: int
-    priority: str = Field(description="One of: High, Medium, Low, Spam")
+    priority: Literal["High", "Medium", "Low", "Spam", "Error"] = Field(description="One of: High, Medium, Low, Spam, Error (for dead letter quarantine)")
     summary: str = Field(description="A one sentence summary of the email")
-    key_entities: list = Field(default=[], description="List of key entities extracted")
+    key_entities: List[str] = Field(default=[], description="List of key entities extracted")
     action_required: bool = Field(description="Does this require human action?")
     is_truncated: bool = Field(description="Whether the original body was truncated before processing")
 
