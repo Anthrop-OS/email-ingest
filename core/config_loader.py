@@ -25,12 +25,17 @@ class EmailAccountConfig(BaseModel):
         return password
 
 class LLMProviderConfig(BaseModel):
-    provider_type: Literal["openai", "ollama", "vllm", "local"] = Field(description="Must be exactly 'openai' supported right now, but others act as aliases for the same underlying OpenAI SDK via base_url")
+    provider_type: Literal["openai", "openrouter", "ollama", "vllm", "local"] = Field(description="LLM backend. 'openrouter' auto-sets base_url to https://openrouter.ai/api/v1")
     model: str
     base_url_env_var: Optional[str] = None
     api_key_env_var: str
     max_content_length: int = 8000
     rate_limit_rpm: int = Field(default=30, description="Max LLM requests per minute. 0 = no limit. Default 30 to protect against accidental API cost spikes.")
+    # OpenRouter-recommended headers for provider rankings & analytics
+    http_referer: Optional[str] = Field(default=None, description="HTTP-Referer header sent to OpenRouter for app rankings")
+    app_title: Optional[str] = Field(default=None, description="X-Title header sent to OpenRouter for app identification")
+
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     
     def get_api_key(self) -> str:
         api_key = os.environ.get(self.api_key_env_var)
@@ -39,9 +44,25 @@ class LLMProviderConfig(BaseModel):
         return api_key
         
     def get_base_url(self) -> Optional[str]:
+        # Explicit env var override always wins
         if self.base_url_env_var:
-            return os.environ.get(self.base_url_env_var)
+            url = os.environ.get(self.base_url_env_var)
+            if url:
+                return url
+        # Auto-set for OpenRouter when no explicit override
+        if self.provider_type == "openrouter":
+            return self.OPENROUTER_BASE_URL
         return None
+
+    def get_extra_headers(self) -> dict:
+        """Return provider-specific HTTP headers (OpenRouter ranking headers)."""
+        headers = {}
+        if self.provider_type == "openrouter":
+            if self.http_referer:
+                headers["HTTP-Referer"] = self.http_referer
+            if self.app_title:
+                headers["X-Title"] = self.app_title
+        return headers
 
 class AppConfig(BaseModel):
     settings: SettingsConfig
