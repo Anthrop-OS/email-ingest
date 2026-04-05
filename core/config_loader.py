@@ -28,6 +28,7 @@ class LLMProviderConfig(BaseModel):
     model: str
     base_url_env_var: Optional[str] = None
     api_key_env_var: str
+    max_content_length: int = 8000
     
     def get_api_key(self) -> str:
         api_key = os.environ.get(self.api_key_env_var)

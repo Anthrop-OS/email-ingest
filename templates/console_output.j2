@@ -1,0 +1,22 @@
+======================================================================
+📧 EMAIL TRIAGE REPORT [{% if priority == 'High' %}🚨 HIGH{% elif priority == 'Medium' %}⚠️ MEDIUM{% elif priority == 'Spam' %}🗑️ SPAM{% else %}ℹ️ LOW{% endif %}]
+======================================================================
+UID: {{ original_uid }}
+Truncated by AI Limits: {% if is_truncated %}Yes{% else %}No{% endif %}
+
+📝 Summary:
+{{ summary }}
+
+{% if action_required %}
+💥 ACTION REQUIRED! This email needs human attention.
+{% else %}
+✅ No urgent human attention needed.
+{% endif %}
+
+🏷️  Key Entities extracted:
+{% for tag in key_entities %}
+  - {{ tag }}
+{% else %}
+  (No key entities found)
+{% endfor %}
+======================================================================

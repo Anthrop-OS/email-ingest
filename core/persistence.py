@@ -2,10 +2,12 @@ import sqlite3
 import uuid
 from datetime import datetime
 from typing import Optional
+from pathlib import Path
 
 class PersistenceManager:
     def __init__(self, db_path: str):
         self.db_path = db_path
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.db_path)
         self._init_db()
 
