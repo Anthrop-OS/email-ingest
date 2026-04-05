@@ -10,6 +10,8 @@
 - **🔒 原子级游标安全 (Idempotent Cursors)：** 底层由 SQLite 支持。游标游历（Cursor Advance）仅在网络发信、内容处理和最终交付全面成功后执行，具有事务安全保护。
 - **🧠 纯净化 AI Triage：** 内置硬截断 (Hard Limit) 和精调的 Prompt Engineering，让模型为你过滤所有历史上下文，精准返回关键实体（Entities）、紧急程度（Priority）与行动建议！
 - **💼 无状态的单次执行 (Run-Once & Stateless)：** 告别不稳定的死循环守护进程！系统被设计被操作系统层面 (如 K8s CronJob, Linux Crontab, Node Orchestrator) 随时按需调起。
+- **⏱️ 互斥防重叠保护 (FileLock Gating)：** 即使您的 CronJob 设计得不合理导致任务发生并发堆叠也没有关系。系统会在账户边界自动加锁保护，阻断脏写双杀。
+- **🛡️ 毒药信件自愈墙 (Poison Pill Quarantine)：** 当存在某封异常邮件让大模型宕机、过滤报错时，系统不会被阻塞致死。而是会自动生成 `[NLP FAULT]` 兜底实体报告交给人工检修，自己则越过雷区光标继续前行！
 - **🏗️ 可插拔的渲染管道：** 从美观的终端颜色控制台 `Console Output` 到与机器接驳的 `JSON Format` 随意切换，支持 Jinja2 外置排版引擎彻底解耦业务。
 
 ---
@@ -44,6 +46,11 @@ cp .env.example .env
 # 最常用的默认启动命令。将依据 config.yaml 全部顺序执行并打印到控制台
 python main.py 
 ```
+
+### = 冷初始化 (Cold Start) =
+* **`--init-start-date <YYYY-MM-DD>`**
+  **（防雪崩安全发令枪）**
+  极其重要：任何一个 UID 游标为空的账户被接入系统时，必须通过该参数显性圈定追溯的时间起跑点。否则系统将被直接封印，彻底断绝长历史邮箱造成极其恐怖的 AI 计算花销陷阱！
 
 ### = 安全排障组 (Safe Playgrounds) = 
 * **`--dry-run`**
