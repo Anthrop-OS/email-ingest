@@ -4,10 +4,10 @@ settings:
 
 email_accounts:
   - account_id: "example_work_email"
-    imap_server: "imap.example.com"
+    imap_server: "imap.gmail.com"
     imap_port: 993
     use_ssl: true
-    username: "user@example.com"
+    username: "your_email@gmail.com"
     password_env_var: "WORK_EMAIL_PASSWORD"  # References the key in .env
     fetch_folder: "INBOX"
 

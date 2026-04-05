@@ -25,15 +25,20 @@ pip install -r requirements.txt
 ```
 
 ### 2. 安全与凭证配置
-将代码库提供的 `.env.example` 复制并重命名为 `.env`：
+将代码库提供的模板文件复制并重命名，然后填入真实凭证：
 ```bash
 cp .env.example .env
+cp config.yaml.example config.yaml
 ```
-修改里边的 `WORK_EMAIL_PASSWORD` (用来拉取邮件的应用专用密码) 以及 `LLM_API_KEY` (你的大模型 API 激活密钥)。
+修改 `.env` 中的 `WORK_EMAIL_PASSWORD` (用来拉取邮件的应用专用密码) 以及 `LLM_API_KEY` (你的大模型 API 激活密钥)。
+
+> ⚠️ `config.yaml` 和 `.env` 均已被 `.gitignore` 排除，不会被提交到版本库。
 
 ### 3. 定义拓扑蓝图
-修改 `config.yaml`。本系统完全基于 YAML 管理账户：
+修改 `config.yaml`。本系统完全基于 YAML 管理账户拓扑：
 在 `config.yaml` 中你可以定义 `[email_accounts]` 数组来聚合任意多的子邮箱，所有子邮箱支持独立溯源，游标互不干扰。
+
+**Gmail 用户提示：** 请将 `imap_server` 设为 `imap.gmail.com`，并在 [Google 账户安全设置](https://myaccount.google.com/security) 中开启两步验证后生成 **应用专用密码 (App Password)** 填入 `.env`。
 
 ---
 
