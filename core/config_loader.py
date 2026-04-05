@@ -30,6 +30,7 @@ class LLMProviderConfig(BaseModel):
     base_url_env_var: Optional[str] = None
     api_key_env_var: str
     max_content_length: int = 8000
+    rate_limit_rpm: int = Field(default=30, description="Max LLM requests per minute. 0 = no limit. Default 30 to protect against accidental API cost spikes.")
     
     def get_api_key(self) -> str:
         api_key = os.environ.get(self.api_key_env_var)

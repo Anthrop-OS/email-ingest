@@ -17,3 +17,4 @@ llm_provider:
   base_url_env_var: "LLM_BASE_URL" # Useful for vLLM/Ollama
   api_key_env_var: "LLM_API_KEY"
   max_content_length: 8000 # Prevents blowing out the context window
+  rate_limit_rpm: 30       # Max LLM requests/min. 0 = unlimited. Protects against API cost spikes.
