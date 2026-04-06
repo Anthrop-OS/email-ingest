@@ -14,26 +14,76 @@ from core.content_hasher import compute_email_fingerprint
 from modules.email_fetcher import EmailFetcher
 from modules.nlp_processor import NLPProcessor, LLMResponse
 from modules.output_channel import ConsoleOutputChannel, FileOutputChannel
+from modules.query_handler import QueryHandler
 
 logger = logging.getLogger("main")
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Daemon-less Email Ingest & NLP Triage Processor")
     parser.add_argument("--config", default="config.yaml", help="Path to the config.yaml file")
-    parser.add_argument("--dry-run", action="store_true", help="Run without network calls or DB side-effects")
-    parser.add_argument("--target-account", help="Execute only for a specific account email")
-    parser.add_argument("--format", choices=["console", "json"], default="console", help="Render format")
     parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Override level")
-    parser.add_argument("--reset-cursor", action="store_true", help="DANGER: Resets cursor to 0")
-    parser.add_argument("--force-from-uid", type=int, help="Override SQLite UID cursor and start from this UID")
-    parser.add_argument("--init-start-date", help="Format YYYY-MM-DD. Mandatory on first run to prevent avalanche.")
-    parser.add_argument("--skip-nlp", action="store_true", help="Bypass LLM")
-    parser.add_argument("--force-reprocess", action="store_true", help="Ignore NLP cache and re-run LLM for all emails in this run")
-    parser.add_argument("--output-file", help="JSON file path to safely dump processed results")
-    return parser.parse_args()
+
+    subparsers = parser.add_subparsers(dest="command")
+
+    # ── ingest (default) ──────────────────────────────────────────
+    ingest = subparsers.add_parser("ingest", help="Run the email ingest pipeline")
+    ingest.add_argument("--dry-run", action="store_true", help="Run without network calls or DB side-effects")
+    ingest.add_argument("--target-account", help="Execute only for a specific account email")
+    ingest.add_argument("--format", choices=["console", "json"], default="console", help="Render format")
+    ingest.add_argument("--reset-cursor", action="store_true", help="DANGER: Resets cursor to 0")
+    ingest.add_argument("--force-from-uid", type=int, help="Override SQLite UID cursor and start from this UID")
+    ingest.add_argument("--init-start-date", help="Format YYYY-MM-DD. Mandatory on first run to prevent avalanche.")
+    ingest.add_argument("--skip-nlp", action="store_true", help="Bypass LLM")
+    ingest.add_argument("--force-reprocess", action="store_true", help="Ignore NLP cache and re-run LLM for all emails in this run")
+    ingest.add_argument("--output-file", help="JSON file path to safely dump processed results")
+
+    # ── query ─────────────────────────────────────────────────────
+    query = subparsers.add_parser("query", help="Query stored email + NLP results")
+    query.add_argument("--after-id", type=int, default=0, help="Return rows with id > N (cursor anchor)")
+    query.add_argument("--account", help="Filter by account_id")
+    query.add_argument("--run", help="Filter by run_id")
+    query.add_argument("--priority", choices=["High", "Medium", "Low", "Spam", "Error"], help="Filter by priority")
+    query.add_argument("--since", help="Email date >= YYYY-MM-DD")
+    query.add_argument("--until", help="Email date <= YYYY-MM-DD")
+    query.add_argument("--limit", type=int, default=1000, help="Max rows returned (default 1000)")
+    query.add_argument("--format", choices=["json", "table"], default="json", help="Output format")
+
+    args = parser.parse_args()
+    # Default to 'ingest' when no subcommand given (backwards compat)
+    if args.command is None:
+        args.command = "ingest"
+        # Re-parse with ingest defaults so all ingest flags work
+        args = ingest.parse_args(sys.argv[1:], namespace=argparse.Namespace(
+            command="ingest", config=args.config, log_level=args.log_level
+        ))
+    return args
+
+def run_query(args):
+    """Handle the 'query' subcommand."""
+    if not Path(args.config).exists():
+        logger.error(f"Configuration file {args.config} not found.")
+        sys.exit(1)
+    config = ConfigLoader.load(args.config)
+    persistence = PersistenceManager(config.settings.db_path)
+    try:
+        handler = QueryHandler(persistence)
+        response = handler.execute(
+            after_id=args.after_id,
+            account_id=args.account,
+            run_id=args.run,
+            priority=args.priority,
+            since=args.since,
+            until=args.until,
+            limit=args.limit,
+        )
+        print(handler.format_output(response, fmt=args.format))
+    finally:
+        persistence.close()
+
 
 def main():
     args = parse_args()
+
     run_id = uuid4().hex[:8]
     log_level = getattr(logging, args.log_level) if args.log_level else logging.INFO
     logging.basicConfig(
@@ -42,6 +92,10 @@ def main():
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
+    if args.command == "query":
+        return run_query(args)
+
+    # ── ingest path ───────────────────────────────────────────────
     t_start = _time.monotonic()
     total_fetched = 0
     total_llm_calls = 0
@@ -126,16 +180,23 @@ def main():
 
             if args.skip_nlp:
                 logger.info("Skipping NLP processing (--skip-nlp enabled).")
-                processed_results = [
-                    {
+                for e in emails_data:
+                    nlp_result = {
                         "original_uid": e.get("uid"),
                         "priority": "Unprocessed",
                         "summary": f"RAW: {e.get('subject')}",
                         "key_entities": [],
                         "action_required": False,
-                        "is_truncated": False
-                    } for e in emails_data
-                ]
+                        "is_truncated": False,
+                    }
+                    processed_results.append(nlp_result)
+                    if not args.dry_run:
+                        content_hash = compute_email_fingerprint(e)
+                        persistence.insert_email_record(
+                            run_id=run_id, account_id=account.account_id,
+                            uid=e.get("uid", 0), content_hash=content_hash,
+                            email_data=e, nlp_result=nlp_result,
+                        )
             else:
                 nlp = NLPProcessor(
                     config.llm_provider,
@@ -155,7 +216,15 @@ def main():
                             total_cache_hits += 1
                         else:
                             total_llm_calls += 1
-                        processed_results.append(result.model_dump())
+                        result_dict = result.model_dump()
+                        processed_results.append(result_dict)
+                        if not args.dry_run:
+                            persistence.insert_email_record(
+                                run_id=run_id, account_id=account.account_id,
+                                uid=uid or 0, content_hash=content_hash,
+                                email_data=email_data, nlp_result=result_dict,
+                                model_version=config.llm_provider.model,
+                            )
                     except Exception as e:
                         total_errors += 1
                         logger.error(f"NLP skipping email UID {uid} due to error: {e}")
@@ -168,7 +237,15 @@ def main():
                             action_required=True,
                             is_truncated=True
                         )
-                        processed_results.append(fallback.model_dump())
+                        fallback_dict = fallback.model_dump()
+                        processed_results.append(fallback_dict)
+                        if not args.dry_run:
+                            persistence.insert_email_record(
+                                run_id=run_id, account_id=account.account_id,
+                                uid=uid or 0, content_hash=content_hash,
+                                email_data=email_data, nlp_result=fallback_dict,
+                                model_version=config.llm_provider.model,
+                            )
                         # Note: We do NOT set overall_success = False here anymore! Cursor is allowed to pass!
 
             if not processed_results:

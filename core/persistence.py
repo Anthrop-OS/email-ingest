@@ -2,7 +2,7 @@ import json
 import sqlite3
 import uuid
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from typing_extensions import Literal
 from pathlib import Path
 
@@ -53,6 +53,30 @@ class PersistenceManager:
             CREATE INDEX IF NOT EXISTS idx_nlp_cache_account
             ON nlp_cache(account_id)
         ''')
+        # Create emails table — append-only store for agent consumption
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS emails (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id          TEXT    NOT NULL,
+                account_id      TEXT    NOT NULL,
+                uid             INTEGER NOT NULL,
+                content_hash    TEXT    NOT NULL,
+                subject         TEXT,
+                sender          TEXT,
+                date            TEXT,
+                body_preview    TEXT,
+                priority        TEXT,
+                summary         TEXT,
+                key_entities    TEXT,
+                action_required INTEGER,
+                is_truncated    INTEGER,
+                model_version   TEXT,
+                created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_emails_account ON emails(account_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_emails_run     ON emails(run_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_emails_date    ON emails(date)')
         self.conn.commit()
 
     # ── Cursor Management ──────────────────────────────────────────────
@@ -142,6 +166,109 @@ class PersistenceManager:
         deleted = cursor.rowcount
         self.conn.commit()
         return deleted
+
+    # ── Email Records (agent-facing append-only store) ───────────────
+
+    BODY_PREVIEW_LIMIT = 10240  # 10 KB
+
+    def insert_email_record(
+        self,
+        run_id: str,
+        account_id: str,
+        uid: int,
+        content_hash: str,
+        email_data: Dict[str, Any],
+        nlp_result: Optional[Dict[str, Any]] = None,
+        model_version: Optional[str] = None,
+    ) -> int:
+        """
+        Append one email + NLP result to the emails table.
+        Always INSERTs (even on force-reprocess) so the monotonic id
+        sequence is never broken.  Returns the new row id.
+        """
+        body_raw = email_data.get("body") or ""
+        body_preview = body_raw[: self.BODY_PREVIEW_LIMIT]
+
+        priority = summary = key_entities_json = None
+        action_required = is_truncated = None
+        if nlp_result:
+            priority = nlp_result.get("priority")
+            summary = nlp_result.get("summary")
+            entities = nlp_result.get("key_entities", [])
+            key_entities_json = json.dumps(entities, ensure_ascii=False)
+            action_required = 1 if nlp_result.get("action_required") else 0
+            is_truncated = 1 if nlp_result.get("is_truncated") else 0
+
+        cur = self.conn.cursor()
+        now = datetime.utcnow().isoformat()
+        cur.execute(
+            """
+            INSERT INTO emails
+                (run_id, account_id, uid, content_hash,
+                 subject, sender, date, body_preview,
+                 priority, summary, key_entities,
+                 action_required, is_truncated, model_version, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id, account_id, uid, content_hash,
+                email_data.get("subject"), email_data.get("sender"),
+                email_data.get("date"), body_preview,
+                priority, summary, key_entities_json,
+                action_required, is_truncated, model_version, now,
+            ),
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
+    def query_emails(
+        self,
+        after_id: int = 0,
+        account_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        priority: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        limit: int = 1000,
+    ) -> List[Dict[str, Any]]:
+        """
+        Query the emails table with optional filters.
+
+        Date filters (--since / --until) match against the email's original
+        Date header so that the consumer can reason in terms of "when was the
+        email sent", not "when did the pipeline run".
+
+        Returns rows ordered by id ASC (oldest-first) so the consumer can
+        simply record max(id) as its next cursor.
+        """
+        clauses: List[str] = ["id > ?"]
+        params: list = [after_id]
+
+        if account_id:
+            clauses.append("account_id = ?")
+            params.append(account_id)
+        if run_id:
+            clauses.append("run_id = ?")
+            params.append(run_id)
+        if priority:
+            clauses.append("priority = ?")
+            params.append(priority)
+        if since:
+            clauses.append("date >= ?")
+            params.append(since)
+        if until:
+            clauses.append("date <= ?")
+            params.append(until)
+
+        where = " AND ".join(clauses)
+        sql = f"SELECT * FROM emails WHERE {where} ORDER BY id ASC LIMIT ?"
+        params.append(limit)
+
+        cur = self.conn.cursor()
+        cur.execute(sql, params)
+        columns = [desc[0] for desc in cur.description]
+        rows = cur.fetchall()
+        return [dict(zip(columns, row)) for row in rows]
 
     # ── Lifecycle ──────────────────────────────────────────────────────
 
