@@ -136,7 +136,54 @@ python main.py --force-from-uid 1 --force-reprocess
 
 ---
 
-## 🌐 场景十一：通过 OpenRouter 自由切换 200+ 大模型 (OpenRouter Integration)
+## 🤖 场景十一：AI Agent 每日增量拉取邮件报告 (Agent Incremental Pull)
+**用例：** 您部署了一个 AI Agent，每天早晨自动拉取前一天所有新处理的邮件及其 NLP 分拣结果，汇总为一份日报发送给团队。
+**操作命令：**
+```bash
+# Agent 首次运行（拉取全部历史）
+python main.py query --format json
+# → 返回 meta.max_id = 350
+
+# Agent 持久化 last_seen_id=350，次日拉取增量
+python main.py query --after-id 350 --format json
+# → 仅返回 id > 350 的新行，meta.max_id = 412
+```
+**原理解释：**
+* `emails` 表使用 `AUTOINCREMENT` 主键，保证 `id` 严格单调递增。
+* Agent 只需维护一个整数 `last_seen_id`，每次拉取后记录 `meta.max_id` 作为下次的 `--after-id`。
+* 跨多次 pipeline 运行（cron 每小时一次）的结果会自动聚合返回，Agent 无需感知 run 边界。
+* `meta.has_more` 在返回行数等于 `--limit` 时为 `true`，提示 Agent 翻页继续拉取。
+
+---
+
+## 📅 场景十二：查询指定日期范围的邮件报告 (Date Range Query)
+**用例：** 用户向 AI Agent 提问："帮我看看上周收到的高优先级邮件有哪些？" Agent 需要按日期范围和优先级过滤查询结果。
+**操作命令：**
+```bash
+python main.py query --since 2026-03-30 --until 2026-04-05 --priority High --format json
+```
+**原理解释：**
+* `--since` 和 `--until` 基于邮件原始的 Date header 过滤，而非 pipeline 处理时间。这匹配用户的直觉——"邮件是什么时候发的"。
+* 过滤器可自由组合：`--account` + `--priority` + `--since` + `--until` 支持精确到特定账户、特定优先级、特定时间窗口的复合查询。
+* 返回的 JSON 中包含 `subject`、`sender`、`summary`、`key_entities` 等字段，Agent 可直接用于生成自然语言报告。
+
+---
+
+## 🔬 场景十三：调试特定 Pipeline 运行的输出 (Run Audit)
+**用例：** 某次 cron 运行后，您发现部分邮件被标记为 Error 优先级，想检查那次运行的详细输出。
+**操作命令：**
+```bash
+# 先从日志中找到 run_id（格式为 8 位 hex，如 a1b2c3d4）
+python main.py query --run a1b2c3d4 --format table
+```
+**原理解释：**
+* `--run` 过滤器按 `run_id` 精确匹配，仅返回该次 pipeline 执行产生的行。
+* `table` 格式以紧凑的表格展示 ID、优先级、日期、发件人、主题，适合人工快速扫视。
+* 每封邮件在 ingest 阶段（包括正常 NLP、skip-nlp、Error 隔离三种路径）都会被写入 `emails` 表，确保审计完整性。
+
+---
+
+## 🌐 场景十四：通过 OpenRouter 自由切换 200+ 大模型 (OpenRouter Integration)
 **用例：** 您不想被锁定在单一的 LLM 供应商上。也许今天 Claude Sonnet 的性价比最高，明天 Gemini 2.5 Pro 可能更适合邮件分拣任务。借助 [OpenRouter](https://openrouter.ai)，您只需一个 API Key 就能接入 OpenAI、Anthropic、Google、Meta 等所有主流大模型。
 **操作步骤：**
 
