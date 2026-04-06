@@ -2,6 +2,7 @@ import imaplib
 import email
 from email.message import Message
 from typing import List, Dict, Any, Callable, Tuple, Optional
+from bs4 import BeautifulSoup
 from core.config_loader import EmailAccountConfig
 from core.persistence import PersistenceManager
 import logging
@@ -89,6 +90,11 @@ class EmailFetcher:
                             fetched_emails.append(email_data)
                             max_uid_seen = max(max_uid_seen, uid)
 
+            if fetched_emails:
+                logger.info(f"Fetch complete: {len(fetched_emails)} emails found, UID range {min(e['uid'] for e in fetched_emails)}~{max(e['uid'] for e in fetched_emails)}")
+            else:
+                logger.info("Fetch complete: 0 emails found")
+
             # Idempotency is preserved. The caller updates the cursor.
             return fetched_emails, max_uid_seen
 
@@ -110,24 +116,55 @@ class EmailFetcher:
                 decoded_parts.append(str(part))
         return "".join(decoded_parts)
         
+    def _html_to_text(self, html: str) -> str:
+        """Convert HTML to plain text using BeautifulSoup."""
+        soup = BeautifulSoup(html, "lxml")
+        for tag in soup(["script", "style", "head"]):
+            tag.decompose()
+        for a_tag in soup.find_all("a", href=True):
+            href = a_tag["href"]
+            link_text = a_tag.get_text()
+            if link_text.strip():
+                a_tag.replace_with(f"{link_text} ({href})")
+            else:
+                a_tag.replace_with(href)
+        return soup.get_text(separator="\n", strip=True)
+
     def _extract_body(self, msg: Message) -> str:
-        body = ""
+        plain_body = ""
+        html_body = ""
         if msg.is_multipart():
             for part in msg.walk():
                 content_type = part.get_content_type()
                 content_disposition = str(part.get("Content-Disposition", ""))
-                if content_type == "text/plain" and "attachment" not in content_disposition:
-                    try:
-                        part_body = part.get_payload(decode=True)
-                        if part_body:
-                            body += part_body.decode(errors='ignore')
-                    except Exception:
-                        pass
+                if "attachment" in content_disposition:
+                    continue
+                try:
+                    payload = part.get_payload(decode=True)
+                    if not payload:
+                        continue
+                    decoded = payload.decode(errors='ignore')
+                except Exception:
+                    continue
+                if content_type == "text/plain" and not plain_body:
+                    plain_body = decoded
+                elif content_type == "text/html" and not html_body:
+                    html_body = decoded
         else:
+            content_type = msg.get_content_type()
             try:
-                part_body = msg.get_payload(decode=True)
-                if part_body:
-                    body = part_body.decode(errors='ignore')
+                payload = msg.get_payload(decode=True)
+                if payload:
+                    decoded = payload.decode(errors='ignore')
+                    if content_type == "text/html":
+                        html_body = decoded
+                    else:
+                        plain_body = decoded
             except Exception:
-                body = str(msg.get_payload())
-        return body
+                plain_body = str(msg.get_payload())
+
+        if plain_body.strip():
+            return plain_body
+        if html_body.strip():
+            return self._html_to_text(html_body)
+        return ""

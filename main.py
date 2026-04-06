@@ -3,6 +3,8 @@ import sys
 import argparse
 import logging
 import json
+import time as _time
+from uuid import uuid4
 from pathlib import Path
 from filelock import FileLock, Timeout
 
@@ -13,8 +15,6 @@ from modules.email_fetcher import EmailFetcher
 from modules.nlp_processor import NLPProcessor, LLMResponse
 from modules.output_channel import ConsoleOutputChannel, FileOutputChannel
 
-# Default logger setup
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("main")
 
 def parse_args():
@@ -34,10 +34,25 @@ def parse_args():
 
 def main():
     args = parse_args()
-    if args.log_level:
-        logging.getLogger().setLevel(getattr(logging, args.log_level))
-        
-    logger.debug(f"Starting execution with args: {args}")
+    run_id = uuid4().hex[:8]
+    log_level = getattr(logging, args.log_level) if args.log_level else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format=f"%(asctime)s [%(levelname)s] [{run_id}] %(name)s: %(message)s"
+    )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    t_start = _time.monotonic()
+    total_fetched = 0
+    total_llm_calls = 0
+    total_cache_hits = 0
+    total_errors = 0
+
+    logger.info(
+        f"Pipeline started | run_id={run_id} dry_run={args.dry_run} "
+        f"format={args.format} init_date={args.init_start_date or 'N/A'} "
+        f"skip_nlp={args.skip_nlp}"
+    )
 
     if not Path(args.config).exists():
         logger.error(f"Configuration file {args.config} not found.")
@@ -61,8 +76,8 @@ def main():
 
     overall_success = True
 
-    for account in accounts_to_process:
-        logger.info(f"== Processing Account: {account.account_id} ==")
+    for acct_idx, account in enumerate(accounts_to_process, 1):
+        logger.info(f"== [{acct_idx}/{len(accounts_to_process)}] Processing Account: {account.account_id} ==")
         
         # P1: Overlapping Crons Protection
         lock_path = Path(config.settings.db_path).parent / f"{account.account_id}.lock"
@@ -99,6 +114,8 @@ def main():
                 overall_success = False
                 continue
 
+            total_fetched += len(emails_data)
+
             if not emails_data:
                 logger.info("No new emails found.")
                 if not args.dry_run:
@@ -106,7 +123,7 @@ def main():
                 continue
 
             processed_results = []
-            
+
             if args.skip_nlp:
                 logger.info("Skipping NLP processing (--skip-nlp enabled).")
                 processed_results = [
@@ -126,13 +143,22 @@ def main():
                     is_dry_run=args.dry_run,
                     force_reprocess=args.force_reprocess
                 )
-                for email_data in emails_data:
+                for i, email_data in enumerate(emails_data, 1):
+                    uid = email_data.get('uid')
+                    logger.info(f"[{i}/{len(emails_data)}] Processing UID {uid} ...")
                     content_hash = compute_email_fingerprint(email_data)
                     try:
                         result = nlp.process_email(email_data, content_hash)
+                        cache_hit = nlp.last_cache_hit
+                        logger.info(f"[{i}/{len(emails_data)}] UID {uid} -> {result.priority} (cache_hit={cache_hit})")
+                        if cache_hit:
+                            total_cache_hits += 1
+                        else:
+                            total_llm_calls += 1
                         processed_results.append(result.model_dump())
                     except Exception as e:
-                        logger.error(f"NLP skipping email UID {email_data.get('uid')} due to error: {e}")
+                        total_errors += 1
+                        logger.error(f"NLP skipping email UID {uid} due to error: {e}")
                         # P1: Poison Pill Quarantine Fallback
                         fallback = LLMResponse(
                             original_uid=email_data.get('uid') or 0,
@@ -153,7 +179,7 @@ def main():
             if emit_success and not args.dry_run:
                 if highest_fetched_uid >= start_uid:
                     persistence.update_cursor(account.account_id, highest_fetched_uid)
-                    logger.info(f"Cursor advanced for {account.account_id} to {highest_fetched_uid}")
+                    logger.info(f"Cursor advanced for {account.account_id} from {start_uid - 1} -> {highest_fetched_uid} (+{highest_fetched_uid - start_uid + 1} emails)")
                     
                 persistence.log_audit(
                     account_id=account.account_id,
@@ -178,10 +204,22 @@ def main():
         finally:
             lock.release()
 
+    elapsed = _time.monotonic() - t_start
+    mins, secs = divmod(int(elapsed), 60)
+    logger.info(
+        f"\n{'=' * 28}\n  Pipeline Summary\n{'=' * 28}\n"
+        f"  Accounts processed: {len(accounts_to_process)}\n"
+        f"  Emails fetched:     {total_fetched}\n"
+        f"  LLM calls made:     {total_llm_calls}  (cache hits: {total_cache_hits})\n"
+        f"  Errors / Quarantine: {total_errors}\n"
+        f"  Elapsed:            {mins}m {secs}s\n"
+        f"{'=' * 28}"
+    )
+
     if not overall_success:
         logger.warning("Pipeline completed with partial errors.")
         sys.exit(1)
-        
+
     logger.info("Email Ingestion Pipeline completed successfully.")
     sys.exit(0)
 
