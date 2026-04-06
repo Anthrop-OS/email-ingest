@@ -26,6 +26,7 @@ class NLPProcessor:
         self.force_reprocess = force_reprocess
         self.client = None
         self._last_call_time: Optional[float] = None
+        self.last_cache_hit: bool = False
 
         # Warn for non-local LLM providers about API costs
         if config.provider_type not in ("ollama", "local"):
@@ -56,7 +57,7 @@ class NLPProcessor:
             elapsed = time.time() - self._last_call_time
             if elapsed < min_interval:
                 sleep_time = min_interval - elapsed
-                logger.debug(f"Rate limit throttle: sleeping {sleep_time:.2f}s")
+                logger.info(f"Rate limit: waiting {sleep_time:.1f}s before next LLM call")
                 time.sleep(sleep_time)
         self._last_call_time = time.time()
 
@@ -94,10 +95,12 @@ class NLPProcessor:
         if not self.force_reprocess:
             cached = self.persistence.get_cached_nlp(content_hash, model_version=self.config.model)
             if cached:
-                logger.info(f"NLP cache HIT for UID {uid} (hash={content_hash})")
+                logger.debug(f"NLP cache HIT for UID {uid} (hash={content_hash})")
+                self.last_cache_hit = True
                 return LLMResponse(**cached)
 
         # ── Rate limit ────────────────────────────────────────────────
+        self.last_cache_hit = False
         self._throttle()
 
         # ── LLM call ─────────────────────────────────────────────────
@@ -165,5 +168,5 @@ class NLPProcessor:
             )
             
         except Exception as e:
-            logger.error(f"LLM processing failed for UID {uid}: {e}")
+            logger.debug(f"LLM processing failed for UID {uid}: {e}")
             raise RuntimeError(f"NLP failed: {str(e)}") from e

@@ -1,5 +1,7 @@
 import os
 import pytest
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from unittest.mock import MagicMock, patch
 from modules.email_fetcher import EmailFetcher
 from core.config_loader import EmailAccountConfig
@@ -63,5 +65,49 @@ def test_fetch_emails_normal_run(mock_account, persistence):
         assert emails[0]['uid'] == 101
         assert emails[0]['subject'] == 'A'
         assert emails[1]['uid'] == 102
-        
+
         assert max_uid == 102
+
+
+# ── HTML parsing tests ───────────────────────────────────────────
+
+@pytest.fixture
+def fetcher(mock_account, persistence):
+    return EmailFetcher(mock_account, persistence)
+
+
+def test_extract_body_html_only(fetcher):
+    """Multipart email with only text/html should return cleaned text."""
+    msg = MIMEMultipart()
+    html_part = MIMEText("<html><body><p>Hello World</p></body></html>", "html")
+    msg.attach(html_part)
+    body = fetcher._extract_body(msg)
+    assert "Hello World" in body
+
+
+def test_extract_body_prefers_plain(fetcher):
+    """When both plain and html are present, prefer plain."""
+    msg = MIMEMultipart("alternative")
+    plain_part = MIMEText("Plain text content", "plain")
+    html_part = MIMEText("<html><body><p>HTML content</p></body></html>", "html")
+    msg.attach(plain_part)
+    msg.attach(html_part)
+    body = fetcher._extract_body(msg)
+    assert body.strip() == "Plain text content"
+
+
+def test_html_to_text_strips_scripts(fetcher):
+    """Script and style tags should be completely removed."""
+    html = "<html><head><title>T</title></head><body><script>alert('x')</script><style>.a{}</style><p>Content</p></body></html>"
+    result = fetcher._html_to_text(html)
+    assert "alert" not in result
+    assert ".a{}" not in result
+    assert "Content" in result
+
+
+def test_html_to_text_preserves_links(fetcher):
+    """Link text and href should be preserved."""
+    html = '<html><body><a href="https://example.com">Click here</a></body></html>'
+    result = fetcher._html_to_text(html)
+    assert "Click here" in result
+    assert "https://example.com" in result
