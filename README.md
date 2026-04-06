@@ -16,6 +16,7 @@
 - **📄 HTML 邮件智能解析 (HTML Body Extraction)：** 针对仅含 `text/html` 而无 `text/plain` 的现代商业邮件（订单确认、航班行程单、银行对账单），自动使用 BeautifulSoup 将 HTML 清洗为纯文本，清除 `<script>`/`<style>` 标签并保留超链接文本，确保 LLM 收到完整上下文。
 - **📊 全链路可观测性 (Pipeline Observability)：** 每次运行自动生成 8 字符 Run Session ID 并注入所有日志行，提供逐封邮件的 `[i/N]` 进度追踪、缓存命中统计、限流等待可见性，以及运行结束时的 Pipeline Summary（账户数、邮件数、LLM 调用、缓存命中、错误数、耗时）。
 - **🏗️ 可插拔输出管道 (Pluggable Outputs)：** 支持从直观的终端彩色控制台（Console Output）无缝切换至机器友好的结构化 JSON 格式。内置 Jinja2 模板引擎，实现数据处理与展现排版的彻底解耦。
+- **🔍 邮件 + NLP 查询接口 (Email Query Interface)：** 所有已处理邮件（元数据 + NLP 结果 + 正文预览）持久化到 `emails` 追加表中。内置 `query` 子命令支持 offset-based 增量拉取、日期范围/账户/优先级过滤，输出 JSON（含分页游标元数据）或表格格式。专为 AI Agent 的 pull-based 数据消费而设计。
 
 ---
 
@@ -57,25 +58,35 @@ cp config.yaml.example config.yaml
 
 ## 💻 命令行参数 (CLI Options)
 
-系统入口统一为 **`main.py`**。我们为其提供了丰富的参数选项，以支持全覆盖测试与灾备干预：
+系统入口统一为 **`main.py`**，提供两个子命令：`ingest`（邮件抓取与处理，默认）和 `query`（查询已处理结果）。
 
-### = 基础执行 =
+### 全局参数
+
 ```bash
-# 默认启动方式：依据 config.yaml 顺序处理所有账户，并输出至控制台
-python main.py 
+python main.py [--config <path>] [--log-level <LEVEL>] <subcommand> [options]
 ```
 
-* **`--config <path>`**
-  指定配置文件路径，默认为 `config.yaml`。
-* **`--log-level <DEBUG|INFO|WARNING|ERROR>`**
-  覆盖默认的日志级别（默认 `INFO`）。设为 `DEBUG` 可查看缓存命中详情与 LLM 错误追溯。
+* **`--config <path>`** — 指定配置文件路径，默认为 `config.yaml`。
+* **`--log-level <DEBUG|INFO|WARNING|ERROR>`** — 覆盖默认日志级别（默认 `INFO`）。
 
-### = 初始化配置 =
+---
+
+### 子命令：`ingest`（默认）
+
+执行邮件抓取 → NLP 处理 → 输出的完整流水线。不指定子命令时默认进入 ingest 模式，向后兼容。
+
+```bash
+# 以下两种写法等价：
+python main.py ingest --init-start-date 2024-01-01
+python main.py --init-start-date 2024-01-01
+```
+
+#### = 初始化配置 =
 * **`--init-start-date <YYYY-MM-DD>`**
   **（首次运行必备）**
   当接入全新的或游标为空的账户时，必须通过此参数显式指定邮件抓取的起始日期。这能有效防止系统意外拉取全部历史邮件，避免产生巨额的大模型 API 消耗。
 
-### = 调试与测试 = 
+#### = 调试与测试 =
 * **`--dry-run`**
   **（演习模式）**
   全程不调用实际的 LLM API（模拟返回结果），**且禁止任何 SQLite 游标的新建、更新与写入操作**。非常适合在首次部署或修改配置时验证系统连通性，零副作用。
@@ -86,24 +97,94 @@ python main.py
   **(强制重新处理)**
   忽略 NLP 结果缓存，强制对本次运行中的所有邮件重新调用 LLM。适用于模型 Prompt 调整后想要刷新历史结果的场景。注：正常切换模型时缓存会自动按 model_version 失效，无需手动指定此参数。
 
-### = 并发与调度 =
+#### = 并发与调度 =
 * **`--target-account <account_id>`**
   **（精准定向）**
   指定本次任务仅处理单一邮箱账户。结合任务调度器，可外挂实现多账户的并发处理（例如分配多个独立进程并行执行，互不阻塞）。
 
-### = 灾备与游标干预 =
+#### = 灾备与游标干预 =
 当出现下游异常或记录偏移时，可使用以下高级指令：
 * **`--reset-cursor`**
   强制将目标账户在 SQLite 中的游标重置为 0。（⚠️ **高危操作**：下次启动将拉取该邮箱的所有历史信件，请务必结合目标账户范围和时间参数谨慎使用）
 * **`--force-from-uid <number>`**
   忽略当前游标，强制从特定的 `[UID]` 锚点开始向后拉取。（注：本次强制拉取成功后，最新的 UID 仍会正常更新并覆盖至当前游标）
 
-### = 输出控制重定向 = 
+#### = 输出控制重定向 =
 当需要被 Node.js 等其他宿主进程调用并捕获数据流时：
 * **`--format json`**
   禁用控制台的 Jinja2 彩色排版，强制将标准输出 (`stdout`) 格式化为严格的 JSON 数组格式。
 * **`--output-file <file.json>`**
   最高级别的输出剥离：将处理完成的 JSON 数据直接落盘写入指定文件，不再打印到屏幕。此方式能 100% 避免标准输出流被 `pip` 警告或其他日志杂音污染。
+
+---
+
+### 子命令：`query`
+
+查询已持久化的邮件元数据与 NLP 分拣结果。所有被 `ingest` 处理过的邮件（包括 NLP 成功、skip-nlp、Error 隔离）都会被写入 `emails` 追加表，供 `query` 检索。
+
+```bash
+python main.py query [options]
+```
+
+#### = 游标锚点（Agent 增量拉取核心）=
+* **`--after-id <N>`**
+  返回 `id > N` 的行。Agent 只需持久化上次返回的 `meta.max_id`，下次传入即可实现不重不漏的增量消费。默认为 0（返回全部）。
+
+#### = 过滤器 =
+* **`--account <account_id>`** — 按邮箱账户过滤
+* **`--run <run_id>`** — 按 pipeline 运行 ID 过滤（用于调试特定批次）
+* **`--priority <High|Medium|Low|Spam|Error>`** — 按 NLP 优先级过滤
+* **`--since <YYYY-MM-DD>`** — 邮件发送日期 >= 指定日期
+* **`--until <YYYY-MM-DD>`** — 邮件发送日期 <= 指定日期
+
+#### = 输出控制 =
+* **`--format <json|table>`** — 输出格式，默认 `json`。`json` 格式包含 `meta` 分页元数据，适合程序消费；`table` 格式适合人工快速浏览。
+* **`--limit <N>`** — 最大返回行数，默认 1000。当返回行数等于 limit 时，`meta.has_more = true`，提示需要翻页。
+
+#### = 使用示例 =
+```bash
+# AI Agent 增量拉取（最常见用法）
+python main.py query --after-id 150 --format json
+
+# 查询上周的高优先级邮件报告
+python main.py query --since 2026-03-30 --until 2026-04-05 --priority High
+
+# 人工检查特定账户的最近处理结果
+python main.py query --account user@example.com --format table --limit 20
+
+# 调试某次 pipeline 运行的输出
+python main.py query --run a1b2c3d4 --format table
+```
+
+#### = JSON 响应结构 =
+```json
+{
+  "results": [
+    {
+      "id": 201,
+      "run_id": "a1b2c3d4",
+      "account_id": "user@example.com",
+      "uid": 360,
+      "content_hash": "abc123def456",
+      "subject": "Q2 Budget Review",
+      "sender": "cfo@company.com",
+      "date": "2026-03-31",
+      "body_preview": "Please review the attached...",
+      "priority": "High",
+      "summary": "CFO requests budget approval by EOD Friday",
+      "key_entities": ["Q2 Budget", "CFO"],
+      "action_required": true,
+      "is_truncated": false,
+      "created_at": "2026-04-05T10:30:00"
+    }
+  ],
+  "meta": {
+    "count": 1,
+    "max_id": 201,
+    "has_more": false
+  }
+}
+```
 
 ---
 
@@ -124,5 +205,6 @@ python main.py
 | [`docs/persistence/persistence_analysis.md`](docs/persistence/persistence_analysis.md) | 持久化层与幂等性的完整技术分析，包含故障场景矩阵和方案对比 |
 | [`docs/persistence/nlp_cache_implementation.md`](docs/persistence/nlp_cache_implementation.md) | NLP 结果缓存的详细设计方案，包含 Schema、Content Hash 算法、Race Condition 分析 |
 | [`docs/persistence/nlp_cache_walkthrough.md`](docs/persistence/nlp_cache_walkthrough.md) | NLP 缓存功能的变更记录与验证结果 |
-| [`docs/use_case_examples.md`](docs/use_case_examples.md) | 完整使用场景与实战教程 |
+| [`docs/persistence/email_query_implementation.md`](docs/persistence/email_query_implementation.md) | Email Query 接口的设计方案，包含 Schema、Offset vs Run ID 对比、Agent 消费协议 |
+| [`docs/use_case_examples.md`](docs/use_case_examples.md) | 完整使用场景与实战教程（含 Agent 增量拉取、日期范围查询、Run 审计） |
 | [`docs/openclaw_interface_usage.md`](docs/openclaw_interface_usage.md) | OpenClaw Webhook 集成指南 |
