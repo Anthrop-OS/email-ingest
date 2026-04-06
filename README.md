@@ -1,7 +1,7 @@
 # 📧 Email Ingest - AI-Powered Email Triage System
 
 **Email Ingest** 是一款工业级、无状态（Stateless）的智能化邮件抓取与分拣流水线，专为按需调用（On-demand / Cron-driven）架构而设计。
-该系统能够并发拉取多个 IMAP 邮箱服务器中的增量邮件，通过接入主流大语言模型（如 OpenAI, Gemini, OLLAMA, vLLM）对杂乱冗长的邮件内容进行 AI 智能解析与分拣，最终输出高质量的结构化数据，以便下游基础设施轻松集成与消费。
+该系统能够依次拉取多个 IMAP 邮箱服务器中的增量邮件，通过接入主流大语言模型（如 OpenAI, Gemini, OLLAMA, vLLM）对杂乱冗长的邮件内容进行 AI 智能解析与分拣，最终输出高质量的结构化数据，以便下游基础设施轻松集成与消费。
 
 ---
 
@@ -13,6 +13,8 @@
 - **💼 无状态按需执行 (Run-Once & Stateless)：** 摒弃不稳定的常驻守护进程模式。系统被设计为单次执行，完美契合操作系统级任务编排工具（如 K8s CronJob, Linux Crontab, Node Orchestrator）的按需调度。
 - **⏱️ 并发防冲突保护 (FileLock Gating)：** 具备账户级别的进程互斥锁。即使调度器触发重叠的并发任务，也能自动加锁拦截，有效阻断“脏写”与重复处理。
 - **🛡️ 异常隔离与自愈 (Poison Pill Quarantine)：** 遇到导致大模型解析失败或报错的“异常邮件”时，系统不会被阻塞中断。它会自动生成包含 `[NLP FAULT]` 标记的兜底报告交由人工复核，并安全跳过该邮件继续处理后续队列。
+- **📄 HTML 邮件智能解析 (HTML Body Extraction)：** 针对仅含 `text/html` 而无 `text/plain` 的现代商业邮件（订单确认、航班行程单、银行对账单），自动使用 BeautifulSoup 将 HTML 清洗为纯文本，清除 `<script>`/`<style>` 标签并保留超链接文本，确保 LLM 收到完整上下文。
+- **📊 全链路可观测性 (Pipeline Observability)：** 每次运行自动生成 8 字符 Run Session ID 并注入所有日志行，提供逐封邮件的 `[i/N]` 进度追踪、缓存命中统计、限流等待可见性，以及运行结束时的 Pipeline Summary（账户数、邮件数、LLM 调用、缓存命中、错误数、耗时）。
 - **🏗️ 可插拔输出管道 (Pluggable Outputs)：** 支持从直观的终端彩色控制台（Console Output）无缝切换至机器友好的结构化 JSON 格式。内置 Jinja2 模板引擎，实现数据处理与展现排版的彻底解耦。
 
 ---
@@ -20,7 +22,7 @@
 ## 🚀 快速上手 (Quick Start)
 
 ### 1. 基础环境
-要求：Python `3.7+`
+要求：Python `3.8+`
 
 ```bash
 # 创建虚拟环境（推荐）
@@ -31,7 +33,7 @@ python -m venv venv
 # 激活虚拟环境 (Linux/macOS)
 source venv/bin/activate
 
-# 安装依赖
+# 安装依赖（包含 lxml，部分系统可能需要先安装 libxml2-dev libxslt-dev）
 pip install -r requirements.txt
 ```
 
@@ -62,6 +64,11 @@ cp config.yaml.example config.yaml
 # 默认启动方式：依据 config.yaml 顺序处理所有账户，并输出至控制台
 python main.py 
 ```
+
+* **`--config <path>`**
+  指定配置文件路径，默认为 `config.yaml`。
+* **`--log-level <DEBUG|INFO|WARNING|ERROR>`**
+  覆盖默认的日志级别（默认 `INFO`）。设为 `DEBUG` 可查看缓存命中详情与 LLM 错误追溯。
 
 ### = 初始化配置 =
 * **`--init-start-date <YYYY-MM-DD>`**
