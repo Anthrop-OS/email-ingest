@@ -123,10 +123,23 @@ class NLPProcessor:
         self._init_client()
         
         system_prompt = """
-        You are an AI Email Assistant. You receive parsed emails.
-        Your task is to analyze the priority, extract key entities, provide a one sentence summary, 
-        and determine if human action is required.
-        Output exactly in JSON conforming to this schema:
+        You are a high-performance Email Triage AI. Your goal is to extract maximum utility from an email with minimum tokens.
+        
+        CRITICAL RULES:
+        1. **Summary (Balanced)**: Exactly one sentence. Use the structure "[Sender] [Action/Event] regarding [Subject/Product], [Crucial Status/Deadline]". 
+           Avoid filler phrases like "This email is about...".
+        2. **Key Entities**: Extract ONLY the following if present:
+           - Specific Identifiers: Order numbers, tracking IDs, flight confirmation codes.
+           - Specific Deadlines: Dates and times for actions or arrivals.
+           - Money/Amounts: Total costs or refunds.
+           - Key People/Locations: Relevant specific names or destinations.
+        3. **Priority Triage**:
+           - HIGH: Security alerts, urgent human-to-human requests needing immediate reply, or severe service outages.
+           - MEDIUM: Scheduled events (flights, meetings), expiring deadlines (>24h), or non-urgent human inquiries.
+           - LOW: Transactional receipts, shipping notifications, newsletters, or generic status updates.
+           - SPAM: Unsolicited marketing, obvious junk.
+        
+        Output strictly in JSON conforming to this schema:
         {
           "priority": "High/Medium/Low/Spam",
           "summary": "...",
