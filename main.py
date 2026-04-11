@@ -48,6 +48,13 @@ def parse_args():
     query.add_argument("--limit", type=int, default=1000, help="Max rows returned (default 1000)")
     query.add_argument("--format", choices=["json", "table"], default="json", help="Output format")
 
+    # ── status ────────────────────────────────────────────────────
+    status = subparsers.add_parser(
+        "status",
+        help="Report init state so downstream consumers can decide whether --init-start-date is still required",
+    )
+    status.add_argument("--format", choices=["json"], default="json", help="Output format (json only)")
+
     args = parser.parse_args()
     # Default to 'ingest' when no subcommand given (backwards compat)
     if args.command is None:
@@ -81,6 +88,48 @@ def run_query(args):
         persistence.close()
 
 
+def run_status(args):
+    """Handle the 'status' subcommand.
+
+    Emits a JSON document describing whether the ingest DB is past first run,
+    plus per-account cursor state. Downstream consumers (e.g. the OpenClaw
+    ``email-triage`` skill) use this to decide whether ``--init-start-date``
+    is still mandatory, so they no longer need to open the SQLite file
+    directly. See Anthrop-OS/email-ingest#17.
+
+    Exit codes:
+      0 — status emitted successfully (regardless of ``initialized`` value)
+      1 — config file missing or unreadable, or DB cannot be opened
+    """
+    if not Path(args.config).exists():
+        logger.error(f"Configuration file {args.config} not found.")
+        sys.exit(1)
+    try:
+        config = ConfigLoader.load(args.config)
+    except Exception as exc:
+        logger.error(f"Failed to load config: {exc}")
+        sys.exit(1)
+
+    db_path = config.settings.db_path
+    try:
+        persistence = PersistenceManager(db_path)
+    except Exception as exc:
+        logger.error(f"Failed to open ingest DB at {db_path}: {exc}")
+        sys.exit(1)
+
+    try:
+        accounts = persistence.get_all_cursors()
+    finally:
+        persistence.close()
+
+    payload = {
+        "initialized": len(accounts) > 0,
+        "accounts": accounts,
+        "db_path": str(db_path),
+    }
+    print(json.dumps(payload, indent=2))
+
+
 def main():
     args = parse_args()
 
@@ -94,6 +143,9 @@ def main():
 
     if args.command == "query":
         return run_query(args)
+
+    if args.command == "status":
+        return run_status(args)
 
     # ── ingest path ───────────────────────────────────────────────
     t_start = _time.monotonic()

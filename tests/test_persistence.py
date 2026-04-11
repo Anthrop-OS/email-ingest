@@ -20,14 +20,45 @@ def test_init_creates_tables(persistence):
 def test_get_and_update_cursor(persistence):
     # Initially should be 0 since account doesn't exist yet
     assert persistence.get_cursor("test_account") == 0
-    
+
     # Update cursor establishes the first high-water mark
     persistence.update_cursor("test_account", 100)
     assert persistence.get_cursor("test_account") == 100
-    
+
     # Subsequent update advances it
     persistence.update_cursor("test_account", 250)
     assert persistence.get_cursor("test_account") == 250
+
+
+def test_get_all_cursors_empty(persistence):
+    """Fresh DB returns empty list — signals 'first run' to downstream."""
+    assert persistence.get_all_cursors() == []
+
+
+def test_get_all_cursors_multiple_accounts(persistence):
+    """Each account written via update_cursor appears in the output, ordered
+    by account_id, with last_uid and updated_at populated."""
+    persistence.update_cursor("beta@example.com", 200)
+    persistence.update_cursor("alpha@example.com", 100)
+    persistence.update_cursor("gamma@example.com", 300)
+
+    rows = persistence.get_all_cursors()
+    assert [r["account_id"] for r in rows] == [
+        "alpha@example.com",
+        "beta@example.com",
+        "gamma@example.com",
+    ]
+    assert [r["last_uid"] for r in rows] == [100, 200, 300]
+    assert all(isinstance(r["updated_at"], str) and r["updated_at"] for r in rows)
+
+
+def test_get_all_cursors_reflects_updates(persistence):
+    """Updates to an existing account should not duplicate rows."""
+    persistence.update_cursor("acct", 10)
+    persistence.update_cursor("acct", 50)
+    rows = persistence.get_all_cursors()
+    assert len(rows) == 1
+    assert rows[0]["last_uid"] == 50
 
 def test_log_audit_record(persistence):
     persistence.log_audit(
