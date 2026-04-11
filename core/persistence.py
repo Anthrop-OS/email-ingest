@@ -93,11 +93,29 @@ class PersistenceManager:
         cursor.execute('''
             INSERT INTO account_cursors (account_id, last_uid, updated_at)
             VALUES (?, ?, ?)
-            ON CONFLICT(account_id) DO UPDATE SET 
+            ON CONFLICT(account_id) DO UPDATE SET
                 last_uid = excluded.last_uid,
                 updated_at = excluded.updated_at
         ''', (account_id, new_uid, now))
         self.conn.commit()
+
+    def get_all_cursors(self) -> List[Dict[str, Any]]:
+        """Return every recorded account cursor, ordered by account_id.
+
+        Each row is ``{"account_id": str, "last_uid": int, "updated_at": str}``.
+        Used by the ``status`` CLI subcommand so downstream consumers can
+        answer "is this DB past first run?" without opening the SQLite file
+        directly.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT account_id, last_uid, updated_at "
+            "FROM account_cursors ORDER BY account_id"
+        )
+        return [
+            {"account_id": row[0], "last_uid": row[1], "updated_at": row[2]}
+            for row in cursor.fetchall()
+        ]
 
     # ── Audit Logging ──────────────────────────────────────────────────
 
